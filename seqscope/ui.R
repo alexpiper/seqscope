@@ -11,7 +11,7 @@ library(shiny)
 
 shinyUI(pageWithSidebar(
                  
-           headerPanel("SeqScope"),
+           headerPanel(img(src='agvic.jpg', align = "left"),"SeqScope"),
            sidebarPanel(
              
              ## conditionalPanel() functions for selected tab
@@ -22,7 +22,8 @@ shinyUI(pageWithSidebar(
                               
                               radioButtons("mode", label = "",
                                            choices = c("Demo", "Real"), selected = "Demo"),
-                              uiOutput("biomSelect"),
+                              uiOutput("seqtabSelect"),
+                              uiOutput("taxSelect"),
                               uiOutput("metaSelect"),
                               h3("Press the button below to process data"),
                               actionButton("go", "Process"),
@@ -50,10 +51,10 @@ shinyUI(pageWithSidebar(
                    ),
           #   #tabPanel("QC", value = 3),
           #   #tabPanel("Filter", value = 4),
-              tabPanel("Barchart", value = 5,
-                       plotlyOutput("tax_bar")),
-              tabPanel("Heatmap", value = 6,
-                       plotlyOutput("tax_heat", height = "750px", width = "1000px")),
+              tabPanel("Barchart", value = 5),
+                       #plotlyOutput("tax_bar")),
+              tabPanel("Heatmap", value = 6),
+                       #plotlyOutput("tax_heat", height = "750px", width = "1000px")),
           #   #tabPanel("Krona", value = 7),
           #   #tabPanel("Export", value = 8),
           id = "tabselected"

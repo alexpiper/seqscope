@@ -24,20 +24,28 @@ server <- function(input, output)({
     selectInput("var_alpha", "Select the variable", choices = heads_alpha_Anova())
   })
   # RenderUIs for Panel 1
-  output$biomSelect <- renderUI({
+  output$seqtabSelect <- renderUI({
     req(input$mode)
-    if (input$mode == "Custom") {
-      fileInput("in_taxon_table", "Please select your taxonomy table.
-                Note: this should be saved either as *.biom or *.txt",
-                accept = c(".biom", ".txt", ".tsv"))
+    if (input$mode == "Real") {
+      fileInput("in_seqtab", "Please select your sequence table.
+                Note: this should be saved either as *.RDS or *.csv",
+                accept = c(".rds", ".csv"))
+    }
+  })
+  output$taxSelect <- renderUI({
+    req(input$mode)
+    if (input$mode == "Real") {
+      fileInput("in_taxtab", "Please select your taxonomy table.
+                Note: this should be saved either as *.RDS or *.csv",
+                accept = c(".rds", ".csv"))
     }
   })
   output$metaSelect <- renderUI({
     req(input$mode)
-    if (input$mode == "Custom") {
+    if (input$mode == "Real") {
       fileInput("in_metadata", "Please select the metadata file.
-                Note: this should be saved as *.txt",
-                accept = c(".txt", ".tsv"))
+                Note: this should be saved as *.csv or *.txt",
+                accept = c(".csv", ".txt"))
     }
   })
 
@@ -61,32 +69,38 @@ server <- function(input, output)({
 
   # Read in data files, validate and make the physeq object -----
   
-  taxonomy_table <- reactive({
-    if (input$mode == "Custom") {
-      if (grepl(input$in_taxon_table$datapath, pattern = ".txt") |
-          grepl(input$in_taxon_table$datapath, pattern = ".tsv")) {
-        read.table(input$in_taxon_table$datapath, header = 1,
+  seqtab <- reactive({
+    if (input$mode == "Real") {
+      if (grepl(input$in_seqtab$datapath, pattern = ".txt") |
+          grepl(input$in_seqtab$datapath, pattern = ".tsv")) {
+        read.table(input$in_seqtab$datapath, header = 1,
                    sep = "\t", stringsAsFactors = F,
-                   quote = "", comment.char = "") %>%
-          scrub_seqNum_column() %>%
-          scrub_taxon_paths () %>%
-          group_anacapa_by_taxonomy()
-      } else if (grepl(input$in_taxon_table$datapath, pattern = ".biom")) {
-        phyloseq::import_biom(input$in_taxon_table$datapath) %>%
-          convert_biom_to_taxon_table() %>%
-          scrub_seqNum_column() %>%
-          group_anacapa_by_taxonomy()
+                   quote = "", comment.char = "")
+      }else if (grepl(input$in_seqtab$datapath, pattern = ".rds")) {
+        readRDS(input$in_seqtab$datapath)
       }
     } else {
-      readRDS("data/demo_taxonTable.Rds") %>%
-        scrub_seqNum_column() %>%
-        scrub_taxon_paths () %>%
-        group_anacapa_by_taxonomy()
+      readRDS("data/demo_taxonTable.Rds")
     }
   })
   
-  mapping_file <- reactive({
-    if (input$mode == "Custom") {
+  taxtab <- reactive({
+    if (input$mode == "Real") {
+      if (grepl(input$in_taxtab$datapath, pattern = ".txt") |
+          grepl(input$in_taxtab$datapath, pattern = ".tsv")) {
+        read.table(input$in_taxtab$datapath, header = 1,
+                   sep = "\t", stringsAsFactors = F,
+                   quote = "", comment.char = "")
+      }else if (grepl(input$in_taxtab$datapath, pattern = ".rds")) {
+        readRDS(input$in_taxtab$datapath)
+      }
+    } else {
+      readRDS("data/demo_taxonTable.Rds")
+    }
+  })
+  
+  samdf <- reactive({
+    if (input$mode == "Real") {
       if (grepl(readLines(input$in_metadata$datapath, n = 1), pattern = "^#")) {
         phyloseq::import_qiime_sample_data(input$in_metadata$datapath) %>%
           as.matrix() %>%
@@ -103,44 +117,44 @@ server <- function(input, output)({
   
   
   output$fileStatus <- eventReactive(input$go, {
-    if (is.null(validate_input_files(taxonomy_table(), mapping_file()))) {
+    if (is.null(validate_input_files(taxtab(), samdf()))) {
       paste("Congrats, no errors detected!")
     } else {
-      validate_input_files(taxonomy_table(), mapping_file())
+      validate_input_files(taxtab(), samdf())
     }
   })
   # Make physeq object ----
   
   physeq <- eventReactive(input$go, {
-    convert_anacapa_to_phyloseq(taxon_table = taxonomy_table(),
-                                metadata_file = mapping_file())
+    convert_anacapa_to_phyloseq(taxon_table = taxtab(),
+                                metadata_file = samdf())
   })
   
   # Make the object heads, that has the column names in the metadata file
   heads <- reactive({
-    base::colnames(mapping_file())
+    base::colnames(samdf())
   })
   
   heads_numeric <- reactive({
-    mapping_file() %>%
+    samdf() %>%
       dplyr::select_if(is.numeric) %>%
       base::colnames()
   })
   
   heads_alpha_Anova <- reactive({
-    num_factors <- sapply(mapping_file(), function(col) length(unique(col)))
+    num_factors <- sapply(samdf(), function(col) length(unique(col)))
     heads()[num_factors > 2]
   })
   
   # Panel 2:  Print taxon table ---------
   
   output$print_taxon_table <- DT::renderDataTable({
-    table <- taxonomy_table() %>% select(sum.taxonomy, everything())
+    table <- taxtab() %>% select(sum.taxonomy, everything())
     
     DT::datatable(table, options = list(scrollX = TRUE))
   })
   output$print_metadata_table <- DT::renderDataTable({
-    DT::datatable(mapping_file(), options = list(scrollX = TRUE))
+    DT::datatable(samdf(), options = list(scrollX = TRUE))
   }, options = list(pageLength = 5))
   
   
@@ -210,7 +224,7 @@ server <- function(input, output)({
   })
   
   table_for_download <- reactive({
-    taxcol <- reshape2::colsplit(taxonomy_table()$sum.taxonomy, ";", paste0("V", 1:6))%>%
+    taxcol <- reshape2::colsplit(taxtab()$sum.taxonomy, ";", paste0("V", 1:6))%>%
       mutate(V1 = paste0("p__", V1),
              V2 = paste0("c__", V2),
              V3 = paste0("o__", V3),
@@ -219,7 +233,7 @@ server <- function(input, output)({
              V6 = paste0("s__", V6))  %>%
       mutate(taxonomy =  paste(V1, V2, V3, V4, V5, V6, sep = ";")) %>%
       select(-c(V1, V2, V3, V4, V5, V6))
-    cbind(taxonomy_table() %>% rename(taxID = sum.taxonomy), taxcol)
+    cbind(taxtab() %>% rename(taxID = sum.taxonomy), taxcol)
     
   })
   output$downloadTableForBiom <- downloadHandler(
