@@ -11,7 +11,13 @@ library(shiny)
 
 shinyUI(pageWithSidebar(
                  
-           headerPanel(img(src='agvic.jpg', align = "left"),"SeqScope"),
+           headerPanel(
+               list(HTML('<img src="imappests.jpg" width="240" height="70"/>'), "SeqScope"),
+               windowTitle="SeqScope"
+
+           
+            # img(src='seqscope/agvic.jpg', align = "left"),"SeqScope"
+            ),
            sidebarPanel(
              
              ## conditionalPanel() functions for selected tab
@@ -33,7 +39,19 @@ shinyUI(pageWithSidebar(
              conditionalPanel(condition = "input.tabselected == 5 | input.tabselected == 6",
                               uiOutput("which_taxon_level")),
              conditionalPanel(condition = "input.tabselected == 6",
-                              uiOutput("select_species_heat"))
+                              uiOutput("select_species_heat")),
+             
+             # On panels 5 and 6 (barplot and heatmap) ask user what variables should be visualised
+             conditionalPanel(condition = "input.tabselected == 5 |
+                              input.tabselected == 6",
+                              uiOutput("which_variable_r")),
+             
+             # On panel 3, 5 and 6, ask if counts or RA shoudl be displayed
+             conditionalPanel(condition = "input.tabselected == 3 | input.tabselected == 5 |
+                              input.tabselected == 6",
+                              radioButtons("ra_method", "Display samples as counts or relative abundances",
+                                           choices = c("counts", "RA")),
+                              uiOutput("rare_depth"))
            ),
 
       mainPanel(
@@ -49,16 +67,16 @@ shinyUI(pageWithSidebar(
                    h4("Input QC file"),
                    DT::dataTableOutput("print_qc_table")
                    ),
-          #   #tabPanel("QC", value = 3),
+          #tabPanel("Filter", value = 3),
+          
           #   #tabPanel("Filter", value = 4),
-              tabPanel("Barchart", value = 5),
-                       #plotlyOutput("tax_bar")),
-              tabPanel("Heatmap", value = 6),
-                       #plotlyOutput("tax_heat", height = "750px", width = "1000px")),
+              tabPanel("Barchart", value = 5,
+                       plotlyOutput("tax_bar")),
+              tabPanel("Heatmap", value = 6,
+                       plotlyOutput("tax_heat", height = "750px", width = "1000px")),
           #   #tabPanel("Krona", value = 7),
           #   #tabPanel("Export", value = 8),
           id = "tabselected"
           )
-        )
+  )
 ))
-

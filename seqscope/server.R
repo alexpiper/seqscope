@@ -10,6 +10,8 @@ library(tibble)
 library(scales)
 library(heatmaply)
 library(markdown)
+library(ranacapa)
+library(speedyseq)
 
 options(digits = 5, shiny.maxRequestSize = 10 * 1024 ^ 2)
 
@@ -80,7 +82,7 @@ server <- function(input, output)({
         readRDS(input$in_seqtab$datapath)
       }
     } else {
-      readRDS("data/demo_taxonTable.Rds")
+      readRDS("data/demo_seqtab.rds")
     }
   })
   
@@ -95,7 +97,7 @@ server <- function(input, output)({
         readRDS(input$in_taxtab$datapath)
       }
     } else {
-      readRDS("data/demo_taxonTable.Rds")
+      readRDS("data/demo_taxtab.rds")
     }
   })
   
@@ -111,26 +113,33 @@ server <- function(input, output)({
                    quote = "", comment.char = "")
       }
     } else {
-      readRDS("data/demo_metadata.Rds")
+      read.csv("data/demo_samdf.csv") %>%
+        dplyr::filter(!duplicated(SampleID)) %>%
+        magrittr::set_rownames(.$SampleID) 
     }
   })
   
+  #Validate input files - need to adapt validation for our particular onputs
+#  
+# output$fileStatus <- eventReactive(input$go, {
+#   if (is.null(validate_input_files(taxtab(), samdf()))) {
+#     paste("Data sucessfully loaded")
+#   } else {
+#     validate_input_files(taxtab(), samdf())
+#   }
+# })
   
-  output$fileStatus <- eventReactive(input$go, {
-    if (is.null(validate_input_files(taxtab(), samdf()))) {
-      paste("Congrats, no errors detected!")
-    } else {
-      validate_input_files(taxtab(), samdf())
-    }
-  })
-  # Make physeq object ----
   
+  # Make physeq object 
   physeq <- eventReactive(input$go, {
-    convert_anacapa_to_phyloseq(taxon_table = taxtab(),
-                                metadata_file = samdf())
+    phyloseq(tax_table(taxtab()), sample_data(samdf()),
+                 otu_table(seqtab(), taxa_are_rows = FALSE)) 
+
+    
+    # phy_tree(phytree(),)
+  ##if(nrow(seqtab.nochim) > nrow(sample_data(ps))){warning("Warning: All samples not included in phyloseq object, check sample names match the sample metadata")}
   })
   
-  # Make the object heads, that has the column names in the metadata file
   heads <- reactive({
     base::colnames(samdf())
   })
@@ -149,7 +158,18 @@ server <- function(input, output)({
   # Panel 2:  Print taxon table ---------
   
   output$print_taxon_table <- DT::renderDataTable({
-    table <- taxtab() %>% select(sum.taxonomy, everything())
+    table <- taxtab() %>% 
+      as.data.frame() %>%
+      tibble::rownames_to_column(var="seq") %>%
+      tidyr::unite(sum.taxonomy, 2:ncol(.), sep=";") %>%
+      mutate(sum.taxonomy = stringr::str_replace(sum.taxonomy, pattern = "NA", replacement = "")) %>%
+      right_join(seqtab() %>%
+                   as.data.frame() %>%
+                   t()  %>% 
+                   as.data.frame() %>%
+                   tibble::rownames_to_column(var="seq"),
+                 by=c("seq")) %>%
+      select(sum.taxonomy, everything())
     
     DT::datatable(table, options = list(scrollX = TRUE))
   })
@@ -158,17 +178,40 @@ server <- function(input, output)({
   }, options = list(pageLength = 5))
   
   
+  # Panel 3: Filtering ---------- Need to change rarefied to relative abundance
+  # Check if all samples have a non-NA value for the selected variable to plot by
+  # If a sample has an NA for the selected variable, get rid of it from the
+  # sample data and from the metadata and from the taxon table (the subset function does both)
+  data_subset <- reactive({
+    p2 <- physeq()
+    sample_data(p2) <- physeq() %>%
+      sample_data %>%
+      subset(., !is.na(get(input$var)))
+    p2
+  })
+ 
+ # Convert subsetted dataset to relative abundance
+ data_subset_ra <- reactive({
+   if (input$ra_method == "RA") {
+     p2 <- data_subset() 
+     newphyseq <- as(otu_table(p2), "matrix")[which(rowSums(as(otu_table(p2), "matrix")) > 0),] # remove empty samples
+     newphyseq <- apply(newphyseq, 1, function(x) x/sum(x, na.rm=FALSE))
+     otu_table(p2) <- otu_table(newphyseq, taxa_are_rows = TRUE)
+     cat(file=stderr(), "Data transformed \n")
+     p2
+   } else {
+     data_subset()
+   }
+ })
+  
+  
   # Panel 5: Taxonomy-by-site interactive barplot -------
   output$tax_bar <- renderPlotly({
     
     withProgress(message = 'Rendering taxonomy barplot', value = 0, {
       incProgress(0.5)
-      
-      if (input$rared_taxplots == "unrarefied") {
-        physeqGlommed = tax_glom(data_subset_unrare(), input$taxon_level)
-      } else {
-        physeqGlommed = tax_glom(data_subset(), input$taxon_level)
-      }
+        physeqGlommed = speedyseq::tax_glom(data_subset_ra(), input$taxon_level, NArm = FALSE)
+        cat(file=stderr(), "Glommed \n")
       plot_bar(physeqGlommed, fill = input$taxon_level) + theme_ranacapa() +
         theme(axis.text.x = element_text(angle = 45)) +
         theme(axis.title = element_blank())
@@ -183,26 +226,42 @@ server <- function(input, output)({
   
   ## Panel 8: Heatmap of taxonomy by site ---------
   for_hm <- reactive({
-      tt <- data.frame(otu_table(data_subset()))
+    
+    if (input$ra_method == "RA") {
+      tt <-  otu_table(data_subset_ra())
       
-    for_hm <- cbind(tt, colsplit(rownames(tt), ";",
-                                 names = c("Phylum", "Class", "Order", "Family", "Genus", "Species")))
+    } else {
+      tt <- t(otu_table(data_subset())) 
+      
+    }
+    
+    for_hm <- tt %>% 
+    #for_hm <- t(otu_table(p2)) %>% 
+      as.data.frame() %>%
+      tibble::rownames_to_column(var="OTU") %>%
+      left_join(speedyseq::psmelt(data_subset_ra()) %>% 
+      #left_join(speedyseq::psmelt(p2) %>%
+                  select("OTU", "loci", "Phylum", "Class", "Order", "Family", "Genus","Species") %>%
+                  mutate_all(as.character),
+                by="OTU") %>%
+      unique()
     
     for_hm <- for_hm %>%
-      mutate(Phylum = ifelse(is.na(Phylum) | Phylum == "", "unknown", Phylum)) %>%
-      mutate(Class = ifelse(is.na(Class) | Class == "", "unknown", Class)) %>%
-      mutate(Order = ifelse(is.na(Order) | Order == "", "unknown", Order)) %>%
-      mutate(Family = ifelse(is.na(Family) | Family == "", "unknown", Family)) %>%
-      mutate(Genus = ifelse(is.na(Genus) | Genus == "", "unknown", Genus)) %>%
-      mutate(Species = ifelse(is.na(Species)| Species == "", "unknown", Species))
+      mutate(loci = case_when(is.na(loci) ~ "unknown", TRUE ~ loci)) %>%
+      mutate(Phylum = case_when(is.na(Phylum) ~ "unknown", TRUE ~ Phylum)) %>%
+      mutate(Class = case_when(is.na(Class) ~ "unknown", TRUE ~ Class)) %>%
+      mutate(Order = case_when(is.na(Order) ~ "unknown", TRUE ~ Order)) %>%
+      mutate(Family = case_when(is.na(Family) ~ "unknown", TRUE ~ Family)) %>%
+      mutate(Genus = case_when(is.na(Genus) ~ "unknown", TRUE ~ Genus)) %>%
+      mutate(Species = case_when(is.na(Species) ~ "unknown", TRUE ~ Species)) 
     
     for_hm <- for_hm %>%
       group_by(get(input$taxon_level)) %>%
-      # group_by(Species) %>%
+      #group_by(Species) %>%
       summarize_if(is.numeric, sum) %>%
       data.frame %>%
+      #column_to_rownames("Species") #%>%
       column_to_rownames("get.input.taxon_level.")
-    # column_to_rownames("Species")
     for_hm <- for_hm[which(rowSums(for_hm) > 0),]
     for_hm[for_hm == 0] <- NA
     for_hm
@@ -254,7 +313,7 @@ server <- function(input, output)({
       paste("phyloseq-object.Rds", sep = "")
     },
     content = function(file) {
-      saveRDS(data_subset_unrare(), file)
+      saveRDS(data_subset(), file)
     }
   )
   })
