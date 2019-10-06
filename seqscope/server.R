@@ -1,17 +1,18 @@
 library(shiny)
 library(ggplot2)
-library(reshape2)
+#library(reshape2)
 library(vegan)
 library(dplyr)
 library(phyloseq)
-library(broom)
+#library(broom)
 library(plotly)
 library(tibble)
-library(scales)
+#library(scales)
 library(heatmaply)
 library(markdown)
-library(ranacapa)
+#library(ranacapa)
 library(speedyseq)
+library(RColorBrewer)
 
 options(digits = 5, shiny.maxRequestSize = 10 * 1024 ^ 2)
 
@@ -55,7 +56,7 @@ server <- function(input, output)({
   # RenderUI for which_taxon_level, used for barplot and heatmap in Panels 7,8
   output$which_taxon_level <- renderUI({
     radioButtons("taxon_level",
-                 "Pick the taxonomic level for making the plot",
+                 "Select taxonomic level",
                  choices = c("Phylum", "Class", "Order", "Family", "Genus", "Species"))
     
   })
@@ -211,10 +212,12 @@ server <- function(input, output)({
     withProgress(message = 'Rendering taxonomy barplot', value = 0, {
       incProgress(0.5)
         physeqGlommed = speedyseq::tax_glom(data_subset_ra(), input$taxon_level, NArm = FALSE)
-        cat(file=stderr(), "Glommed \n")
-      plot_bar(physeqGlommed, fill = input$taxon_level) + theme_ranacapa() +
+        
+        #col <- colorRampPalette(brewer.pal(11, "Spectral"))(length(unique(tax_table(physeqGlommed)@.Data[,match(input$taxon_level, rank_names(physeqGlommed))])))
+      plot_bar(physeqGlommed, fill = input$taxon_level) + theme_bw() +
         theme(axis.text.x = element_text(angle = 45)) +
-        theme(axis.title = element_blank())
+        theme(axis.title = element_blank()) 
+        #scale_fill_manual(values= col)
       gp <- ggplotly() %>%
         layout(yaxis = list(title = "Abundance", titlefont = list(size = 16)),
                xaxis = list(title = "Sample", titlefont = list(size = 16)),
@@ -236,11 +239,9 @@ server <- function(input, output)({
     }
     
     for_hm <- tt %>% 
-    #for_hm <- t(otu_table(p2)) %>% 
       as.data.frame() %>%
       tibble::rownames_to_column(var="OTU") %>%
       left_join(speedyseq::psmelt(data_subset_ra()) %>% 
-      #left_join(speedyseq::psmelt(p2) %>%
                   select("OTU", "loci", "Phylum", "Class", "Order", "Family", "Genus","Species") %>%
                   mutate_all(as.character),
                 by="OTU") %>%
@@ -276,8 +277,15 @@ server <- function(input, output)({
         selected_taxa <- input$which_taxa_heat
       }
       for_hm <- for_hm()[selected_taxa,]
-      heatmaply(for_hm, Rowv = F, Colv = F, hide_colorbar = F,
-                grid_gap = 1, na.value = "white", key.title = "Number of \nSequences in \nSample")
+      
+      if (input$ra_method == "RA") {
+        heatmaply(for_hm, Rowv = F, Colv = F, hide_colorbar = F,
+                  grid_gap = 1, na.value = "white", key.title = "Relative Abundance \n of Taxa in Sample")
+      } else {
+        heatmaply(for_hm, Rowv = F, Colv = F, hide_colorbar = F,
+                  grid_gap = 1, na.value = "white", key.title = "Number of \nSequences in \nSample")
+      }
+    
     })
     
   })

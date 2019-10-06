@@ -59,7 +59,7 @@ shinyUI(pageWithSidebar(
           tabPanel("Welcome",value=1,
                      includeMarkdown("docs/welcome.md")),
           tabPanel("Data", value=2,
-                   h2("Please verify that the files below look as expected, and click on 'Run the app!' to get started!"),
+                   h2("Verify that the files below look as expected, and click on process to load all data"),
                    h4("Input taxonomy file"),
                    DT::dataTableOutput("print_taxon_table"),
                    h4("Input metadata file"),
