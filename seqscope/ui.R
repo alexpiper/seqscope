@@ -8,6 +8,7 @@
 #
 
 library(shiny)
+library(plotly)
 
 shinyUI(pageWithSidebar(
                  
@@ -35,22 +36,16 @@ shinyUI(pageWithSidebar(
                               actionButton("go", "Process"),
                               textOutput("fileStatus")
              ),    
-             # On panels 5 and 6 (barplot and heatmap), ask which taxonomic level they want to visualize to
-             conditionalPanel(condition = "input.tabselected == 5 | input.tabselected == 6",
+             # On panels 5, 6 and 7 (barplot, heatmap, phylo) ask user what variables should be visualised
+             conditionalPanel(condition = "input.tabselected == 5 | input.tabselected == 6  | input.tabselected == 7",
                               uiOutput("which_taxon_level")),
              conditionalPanel(condition = "input.tabselected == 6",
                               uiOutput("select_species_heat")),
-             
-             # On panels 5 and 6 (barplot and heatmap) ask user what variables should be visualised
-             conditionalPanel(condition = "input.tabselected == 5 |
-                              input.tabselected == 6",
-                              uiOutput("which_variable_r")),
-             
-             # On panel 3, 5 and 6, ask if counts or RA shoudl be displayed
-             conditionalPanel(condition = "input.tabselected == 3 | input.tabselected == 5 |
-                              input.tabselected == 6",
+
+             # On panel 3, 5 and 6, 7 ask if counts or RA shoudl be displayed
+             conditionalPanel(condition = "input.tabselected == 5 | input.tabselected == 6 ",
                               radioButtons("ra_method", "Display samples as counts or relative abundances",
-                                           choices = c("counts", "RA")),
+                                           choices = c("Counts", "Relative Abundance")),
                               uiOutput("rare_depth"))
            ),
 
@@ -74,6 +69,8 @@ shinyUI(pageWithSidebar(
                        plotlyOutput("tax_bar")),
               tabPanel("Heatmap", value = 6,
                        plotlyOutput("tax_heat", height = "750px", width = "1000px")),
+              tabPanel("Phylogeny", value = 7,
+                       plotlyOutput("tax_phylo", height = "750px", width = "1000px")),
           #   #tabPanel("Krona", value = 7),
           #   #tabPanel("Export", value = 8),
           id = "tabselected"

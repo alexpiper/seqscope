@@ -1,16 +1,12 @@
 library(shiny)
 library(ggplot2)
-#library(reshape2)
 library(vegan)
 library(dplyr)
 library(phyloseq)
-#library(broom)
 library(plotly)
 library(tibble)
-#library(scales)
 library(heatmaply)
 library(markdown)
-#library(ranacapa)
 library(speedyseq)
 library(RColorBrewer)
 
@@ -18,14 +14,9 @@ options(digits = 5, shiny.maxRequestSize = 10 * 1024 ^ 2)
 
 server <- function(input, output)({
   
-  # Setup and RenderUIs ---------------
-  # RenderUI for which_variable_r, gets used in Panels 1, 3, 4, 5, 6
-  output$which_variable_r <- renderUI({
-    selectInput("var", "Select the variable", choices = heads())
-  })
-  output$which_variable_alphaDiv <- renderUI({
-    selectInput("var_alpha", "Select the variable", choices = heads_alpha_Anova())
-  })
+
+# Renderuis ---------------------------------------------------------------
+
   # RenderUIs for Panel 1
   output$seqtabSelect <- renderUI({
     req(input$mode)
@@ -51,13 +42,22 @@ server <- function(input, output)({
                 accept = c(".csv", ".txt"))
     }
   })
+  output$phyloSelect <- renderUI({
+    req(input$mode)
+    if (input$mode == "Real") {
+      fileInput("in_phylo", "Please select the phylogeny file.
+                Note: this should be saved as *.rds or *.txt",
+                accept = c(".rds", ".txt"))
+    }
+  })
 
   
   # RenderUI for which_taxon_level, used for barplot and heatmap in Panels 7,8
   output$which_taxon_level <- renderUI({
     radioButtons("taxon_level",
                  "Select taxonomic level",
-                 choices = c("Phylum", "Class", "Order", "Family", "Genus", "Species"))
+                 choices = c("Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU"),
+                 selected="Species")
     
   })
   
@@ -70,8 +70,10 @@ server <- function(input, output)({
                 multiple=TRUE, selectize=FALSE, selected = "Select All")
   })
 
-  # Read in data files, validate and make the physeq object -----
-  
+
+# Read in data ------------------------------------------------------------
+
+
   seqtab <- reactive({
     if (input$mode == "Real") {
       if (grepl(input$in_seqtab$datapath, pattern = ".txt") |
@@ -120,7 +122,22 @@ server <- function(input, output)({
     }
   })
   
-  #Validate input files - need to adapt validation for our particular onputs
+  phytree <- reactive({
+    if (input$mode == "Real") {
+      if (grepl(input$in_taxtab$datapath, pattern = ".txt")) {
+        #read_phylo_txt
+      } else {
+        readRDS(input$in_phylo$datapath)
+      }
+    } else {
+      readRDS("data/demo_phytree.rds")$tree
+    }
+  })
+  
+
+# Validate input files ----------------------------------------------------
+
+# need to adapt validation for our particular inputs
 #  
 # output$fileStatus <- eventReactive(input$go, {
 #   if (is.null(validate_input_files(taxtab(), samdf()))) {
@@ -131,14 +148,12 @@ server <- function(input, output)({
 # })
   
   
-  # Make physeq object 
+
+# Create phyloseq object --------------------------------------------------
+
   physeq <- eventReactive(input$go, {
     phyloseq(tax_table(taxtab()), sample_data(samdf()),
-                 otu_table(seqtab(), taxa_are_rows = FALSE)) 
-
-    
-    # phy_tree(phytree(),)
-  ##if(nrow(seqtab.nochim) > nrow(sample_data(ps))){warning("Warning: All samples not included in phyloseq object, check sample names match the sample metadata")}
+                 otu_table(seqtab(), taxa_are_rows = FALSE), phy_tree(phytree())) 
   })
   
   heads <- reactive({
@@ -156,8 +171,9 @@ server <- function(input, output)({
     heads()[num_factors > 2]
   })
   
-  # Panel 2:  Print taxon table ---------
-  
+
+# Print taxon table -------------------------------------------------------
+
   output$print_taxon_table <- DT::renderDataTable({
     table <- taxtab() %>% 
       as.data.frame() %>%
@@ -179,21 +195,23 @@ server <- function(input, output)({
   }, options = list(pageLength = 5))
   
   
-  # Panel 3: Filtering ---------- Need to change rarefied to relative abundance
+
+# Filter and transform ----------------------------------------------------
+
   # Check if all samples have a non-NA value for the selected variable to plot by
   # If a sample has an NA for the selected variable, get rid of it from the
   # sample data and from the metadata and from the taxon table (the subset function does both)
   data_subset <- reactive({
     p2 <- physeq()
     sample_data(p2) <- physeq() %>%
-      sample_data %>%
-      subset(., !is.na(get(input$var)))
+      sample_data 
+    taxa_names(p2) <- paste0("SV", seq(ntaxa(p2)),"-",tax_table(p2)[,7])
     p2
   })
  
  # Convert subsetted dataset to relative abundance
  data_subset_ra <- reactive({
-   if (input$ra_method == "RA") {
+   if (input$ra_method == "Relative Abundance") {
      p2 <- data_subset() 
      newphyseq <- as(otu_table(p2), "matrix")[which(rowSums(as(otu_table(p2), "matrix")) > 0),] # remove empty samples
      newphyseq <- apply(newphyseq, 1, function(x) x/sum(x, na.rm=FALSE))
@@ -206,18 +224,27 @@ server <- function(input, output)({
  })
   
   
-  # Panel 5: Taxonomy-by-site interactive barplot -------
-  output$tax_bar <- renderPlotly({
+
+# Taxonomy barchart -------------------------------------------------------
+
+   output$tax_bar <- renderPlotly({
     
     withProgress(message = 'Rendering taxonomy barplot', value = 0, {
       incProgress(0.5)
+      
+      if(!input$taxon_level =="OTU"){
         physeqGlommed = speedyseq::tax_glom(data_subset_ra(), input$taxon_level, NArm = FALSE)
-        
-        #col <- colorRampPalette(brewer.pal(11, "Spectral"))(length(unique(tax_table(physeqGlommed)@.Data[,match(input$taxon_level, rank_names(physeqGlommed))])))
-      plot_bar(physeqGlommed, fill = input$taxon_level) + theme_bw() +
-        theme(axis.text.x = element_text(angle = 45)) +
-        theme(axis.title = element_blank()) 
-        #scale_fill_manual(values= col)
+        speedyseq::plot_bar(physeqGlommed, fill = input$taxon_level) + theme_bw() +
+          theme(axis.text.x = element_text(angle = 45)) +
+          theme(axis.title = element_blank()) 
+      } else {
+        physeqGlommed = data_subset_ra()
+        speedyseq::plot_bar(physeqGlommed, fill="Species") + theme_bw() +
+          theme(axis.text.x = element_text(angle = 45)) +
+          theme(axis.title = element_blank()) 
+        }
+      
+      
       gp <- ggplotly() %>%
         layout(yaxis = list(title = "Abundance", titlefont = list(size = 16)),
                xaxis = list(title = "Sample", titlefont = list(size = 16)),
@@ -226,11 +253,13 @@ server <- function(input, output)({
     })
   })
   
-  
-  ## Panel 8: Heatmap of taxonomy by site ---------
+
+
+# Heatmap -----------------------------------------------------------------
+
   for_hm <- reactive({
     
-    if (input$ra_method == "RA") {
+    if (input$ra_method == "Relative Abundance") {
       tt <-  otu_table(data_subset_ra())
       
     } else {
@@ -242,13 +271,13 @@ server <- function(input, output)({
       as.data.frame() %>%
       tibble::rownames_to_column(var="OTU") %>%
       left_join(speedyseq::psmelt(data_subset_ra()) %>% 
-                  select("OTU", "loci", "Phylum", "Class", "Order", "Family", "Genus","Species") %>%
+                  select("OTU", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus","Species") %>%
                   mutate_all(as.character),
                 by="OTU") %>%
       unique()
     
     for_hm <- for_hm %>%
-      mutate(loci = case_when(is.na(loci) ~ "unknown", TRUE ~ loci)) %>%
+      mutate(Kingdom = case_when(is.na(Kingdom) ~ "unknown", TRUE ~ Kingdom)) %>%
       mutate(Phylum = case_when(is.na(Phylum) ~ "unknown", TRUE ~ Phylum)) %>%
       mutate(Class = case_when(is.na(Class) ~ "unknown", TRUE ~ Class)) %>%
       mutate(Order = case_when(is.na(Order) ~ "unknown", TRUE ~ Order)) %>%
@@ -278,7 +307,7 @@ server <- function(input, output)({
       }
       for_hm <- for_hm()[selected_taxa,]
       
-      if (input$ra_method == "RA") {
+      if (input$ra_method == "Relative Abundance") {
         heatmaply(for_hm, Rowv = F, Colv = F, hide_colorbar = F,
                   grid_gap = 1, na.value = "white", key.title = "Relative Abundance \n of Taxa in Sample")
       } else {
@@ -289,6 +318,32 @@ server <- function(input, output)({
     })
     
   })
+  
+  
+
+# Phylogeny ---------------------------------------------------------------
+
+  output$tax_phylo <- renderPlotly({
+    
+    withProgress(message = 'Rendering taxonomy barplot', value = 0, {
+      incProgress(0.5)
+      if(!input$taxon_level =="OTU"){
+      physeqGlommed = speedyseq::tax_glom(data_subset_ra(), input$taxon_level, NArm = FALSE)
+      } else (physeqGlommed = data_subset_ra())
+      
+      plot_tree(physeqGlommed, color="SampleID", label.tips="taxa_names", ladderize="left") + theme_bw() # need to rename taxa 
+      gp <- ggplotly() #%>%
+      #layout(yaxis = list(title = "Abundance", titlefont = list(size = 16)),
+      #       xaxis = list(title = "Sample", titlefont = list(size = 16)),
+      #       margin = list(l = 70, b = 100))
+      gp
+    })
+  })
+  
+  
+
+# Output table ------------------------------------------------------------
+
   
   table_for_download <- reactive({
     taxcol <- reshape2::colsplit(taxtab()$sum.taxonomy, ";", paste0("V", 1:6))%>%
