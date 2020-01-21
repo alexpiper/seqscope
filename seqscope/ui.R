@@ -36,6 +36,35 @@ shinyUI(pageWithSidebar(
                               actionButton("go", "Process"),
                               textOutput("fileStatus")
              ),    
+             conditionalPanel(condition = "input.tabselected == 3",
+                              h4("Subset Taxa"),
+                              fluidRow(column(width=12,
+                                              div(class="col-md-6", uiOutput("filter_uix_subset_taxa_ranks")),
+                                              div(class="col-md-6", uiOutput("filter_uix_subset_taxa_select"))
+                              )),
+                              h4("Subset Samples"),
+                              fluidRow(column(width=12,
+                                              div(class="col-md-6", uiOutput("filter_uix_subset_sample_vars")),
+                                              div(class="col-md-6", uiOutput("filter_uix_subset_sample_select"))
+                              )),
+                              h4('Total Sums Filtering'),
+                              fluidRow(column(width=12,
+                                              div(class="col-md-6",
+                                                  numericInput("filter_sample_sums_threshold", "Sample Min.",
+                                                               value=1, min=0, step=100)),
+                                              div(class="col-md-6",
+                                                  numericInput("filter_taxa_sums_threshold", "Taxa Min.",
+                                                               value=1, min=0, step=1))
+                              )),
+                              h4('OTU Filtering koverA'),
+                              fluidRow(column(width=12,
+                                              div(class="col-md-6",
+                                                  numericInput("filter_kOverA_count_threshold", "Minimum abundance (A)",
+                                                               value=1, min=0, step=1)), 
+                                              div(class="col-md-6", uiOutput("filter_ui_kOverA_k"))
+                              )),
+                              actionButton("actionb_filter", "Execute Filter", icon("filter"))
+             ),
              # On panels 5, 6 and 7 (barplot, heatmap, phylo) ask user what variables should be visualised
              conditionalPanel(condition = "input.tabselected == 5 | input.tabselected == 6  | input.tabselected == 7",
                               uiOutput("which_taxon_level")),
@@ -62,7 +91,10 @@ shinyUI(pageWithSidebar(
                    h4("Input QC file"),
                    DT::dataTableOutput("print_qc_table")
                    ),
-          #tabPanel("Filter", value = 3),
+          tabPanel("Filter", value = 3,
+                   h4("Histograms Before and After Filtering"),
+                    plotOutput("filter_summary_plot")
+            ),
           
           #   #tabPanel("Filter", value = 4),
               tabPanel("Barchart", value = 5,
