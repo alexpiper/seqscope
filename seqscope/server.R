@@ -15,7 +15,7 @@ options(digits = 5, shiny.maxRequestSize = 10 * 1024 ^ 2)
 server <- function(input, output)({
   
 
-# Renderuis ---------------------------------------------------------------
+# Render uis ---------------------------------------------------------------
 
   # RenderUIs for Panel 1
   output$seqtabSelect <- renderUI({
@@ -197,12 +197,9 @@ server <- function(input, output)({
   
 
 
-# Filter ------------------------------------------------------------------
-
- ################################################################################
+# UI Filter ------------------------------------------------------------------
  # UI subset_taxa expression cascade
  # filter_subset_taxa_expr
- ################################################################################
  output$filter_uix_subset_taxa_ranks <- renderUI({
    rankNames = list("NULL"="NULL")
    rankNames <- c(rankNames, as.list(rank_names(physeq(), errorIfNULL=FALSE)))
@@ -226,10 +223,11 @@ server <- function(input, output)({
                  choices = rank_list, selected = "NULL", multiple = TRUE)
    )
  })
- ################################################################################
+ 
+
+# UI Subset samples ----------------------------------------------------------
  # UI subset_samples expression cascade
  # filter_subset_samp_expr
- ################################################################################
  output$filter_uix_subset_sample_vars <- renderUI({
    sampVars = list("NULL"="NULL")
    sampVars <- c(sampVars, as.list(sample_variables(physeq(), errorIfNULL=FALSE)))
@@ -258,11 +256,12 @@ server <- function(input, output)({
    )  
  })
  
- ################################################################################
+
+# Filtering ---------------------------------------------------------------
  # The main reactive data object. Returns a phyloseq-class instance.
  # This is considered the "filtered" data, used by all downstream panels,
  # And generally the input to any transformation options as well
- ################################################################################
+ 
  data_subset <- reactive({
    ps0 <- physeq() 
    if(input$actionb_filter == 0){
@@ -339,7 +338,8 @@ server <- function(input, output)({
      }
    })
  })
- 
+
+  
 # kOverA `k` Filter UI
 maxSamples <- reactive({
   # Create logical indicated the samples to keep, or dummy logical if nonsense input
@@ -355,18 +355,41 @@ output$filter_ui_kOverA_k <- renderUI({
                   min=0, max=maxSamples(), value=kovera_k, step=1)
 })
 
-# Generic Function for plotting marginal histograms
-sums_hist <- function(thesums=NULL, xlab="", ylab=""){
+
+# Filtering Histograms ----------------------------------------------------
+
+sums_hist <- function(thesums=NULL, xlab="", ylab="", scale=TRUE){
   if(is.null(thesums)){
     p = qplot(0)
   } else {
     p = ggplot(data.frame(sums=thesums), aes(x=sums))
     p = p + geom_histogram()
     p = p + xlab(xlab) + ylab(ylab) 
-    p = p + scale_x_log10(labels = scales::comma)
+    if(scale==TRUE){
+      p = p + scale_x_log10(labels = scales::comma)
+    }
   }
   return(p)
 }
+
+read_length_hist <- function(ps=NULL, xlab = "Sequence length", ylab = "Number of Reads (Counts)" ){
+  if(is.null(ps)){
+    p = qplot(0)
+  } else {
+  sums <- as.data.frame(taxa_sums(ps)) %>%
+    magrittr::set_colnames("sums") %>%
+    tibble::rownames_to_column("length") %>%
+    dplyr::mutate(length = nchar(length)) %>%
+    dplyr::group_by(length) %>%
+    dplyr::summarise(sums = sum(sums))
+  p = ggplot(sums, aes(x=length, y=sums))
+  p = p + geom_bar(stat="identity")
+  p = p + xlab(xlab) + ylab(ylab) 
+  #p = p + scale_y_log2(labels = scales::comma)
+  }
+  return(p)
+}
+
 lib_size_hist <- reactive({
   xlab = "Number of Reads (Counts)"
   ylab = "Number of Libraries"
@@ -377,6 +400,18 @@ otu_sum_hist <- reactive({
   ylab = "Number of OTUs"
   return(sums_hist(taxa_sums(physeq()), xlab, ylab))    
 })
+
+length_reads_hist <- reactive({
+  xlab = "Number of Reads (Counts)"
+  ylab = "Sequence length"
+  return(read_length_hist(physeq(), xlab, ylab))    
+})
+length_OTU_hist <- reactive({
+  xlab = "Sequence length" 
+  ylab = "Number of OTU's"
+  return(sums_hist(nchar(colnames(get_taxa(physeq()))), xlab, ylab, scale=FALSE)) 
+})
+
 output$sample_variables <- renderText({return(
   paste0(sample_variables(physeq(), errorIfNULL=FALSE), collapse=", ")
 )})
@@ -389,18 +424,33 @@ output$filter_summary_plot <- renderPlot({
   plib0 = lib_size_hist() + ggtitle("Original Data")
   potu0 = otu_sum_hist() + ggtitle("Original Data")
   if(inherits(data_subset(), "phyloseq")){
-    potu1 = sums_hist(taxa_sums(data_subset()), xlab = "Number of Reads (Counts)",
-                      ylab = "Number of OTUs"
-    ) + 
+    potu1 = sums_hist(taxa_sums(data_subset()), xlab = "Number of Reads (Counts)", ylab = "Number of OTUs" ) +
       ggtitle("Filtered Data")
-    plib1 = sums_hist(sample_sums(data_subset()), xlab = "Number of Reads (Counts)",
-                      ylab = "Number of Libraries"
-    ) + 
+    
+    plib1 = sums_hist(sample_sums(data_subset()), xlab = "Number of Reads (Counts)", ylab = "Number of Libraries" ) +
       ggtitle("Filtered Data")
+
   } else {
     potu1 = plib1 = fail_gen()
   }
-  gridExtra::grid.arrange(plib0, potu0, plib1, potu1, ncol=2) #, main="Histograms: Before and After Filtering")
+  gridExtra::grid.arrange(plib0, plib1, potu0,  potu1,  ncol=2) #, main="Histograms: Before and After Filtering")
+  
+})
+output$length_summary_plot <- renderPlot({
+  plreads0 = read_length_hist(ps = physeq()) + ggtitle("Original Data")
+  plotu0 = length_OTU_hist() + ggtitle("Original Data") 
+  if(inherits(data_subset(), "phyloseq")){
+    plreads1 = read_length_hist(data_subset()) +
+      ggtitle("Filtered Data")
+    
+    plotu1 = sums_hist(nchar(colnames(get_taxa(physeq()))), xlab = "Sequence length", ylab = "Number of OTU's", scale=FALSE) +
+      ggtitle("Filtered Data")
+    
+  } else {
+    plreads1 = plotu1 = fail_gen()
+  }
+  gridExtra::grid.arrange(plreads0, plreads1, plotu0, plotu1,  ncol=2) #, main="Histograms: Before and After Filtering")
+  
 })
 
 # transform ----------------------------------------------------

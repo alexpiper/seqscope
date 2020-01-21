@@ -93,7 +93,8 @@ shinyUI(pageWithSidebar(
                    ),
           tabPanel("Filter", value = 3,
                    h4("Histograms Before and After Filtering"),
-                    plotOutput("filter_summary_plot")
+                    plotOutput("filter_summary_plot"),
+                   plotOutput("length_summary_plot")
             ),
           
           #   #tabPanel("Filter", value = 4),
